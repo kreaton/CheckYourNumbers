@@ -8,6 +8,10 @@ public enum Stage
     /// <summary>Read only: the answer is shown and heard; waiting for the self-grade.</summary>
     Revealed,
 
+    /// <summary>Listen, numbers: a wrong number was typed (and counted as missed); the answer stays
+    /// hidden while the player listens again and retries, or gives up.</summary>
+    Retrying,
+
     /// <summary>Listen only: answered (or timed out); waiting for the next round.</summary>
     Done,
 }
@@ -40,6 +44,9 @@ public sealed class QuizGame
 
     /// <summary>Listen: whether the answer was right, once Done.</summary>
     public bool Right { get; private set; }
+
+    /// <summary>Listen, numbers: whether a wrong number was typed this round, so it is a retry.</summary>
+    public bool Missed { get; private set; }
 
     /// <summary>Seconds allowed per round from the next round; null means no timer.</summary>
     public int? TimerSeconds { get; set; }
@@ -121,6 +128,7 @@ public sealed class QuizGame
         Typed = "";
         Given = null;
         Right = false;
+        Missed = false;
         TimedOut = false;
         LastPoints = 0;
         TimeLimit = TimerSeconds;
@@ -173,15 +181,46 @@ public sealed class QuizGame
         if (CanType && Typed.Length > 0) Typed = Typed[..^1];
     }
 
-    public bool CanType => Mode == Mode.Listen && Deck == DeckKind.Numbers && Stage == Stage.Asking && Current is not null;
+    public bool CanType => Mode == Mode.Listen && Deck == DeckKind.Numbers && Stage is Stage.Asking or Stage.Retrying
+                           && Current is not null;
 
-    /// <summary>Listen, numbers: checks the typed digits.</summary>
+    /// <summary>
+    /// Listen, numbers: checks the typed digits. A first wrong number counts as missed and leaves the
+    /// answer hidden for a retry; a right retry ends the round without points.
+    /// </summary>
     public void Submit()
     {
         if (!CanType || Typed.Length == 0 || CheckTimeout()) return;
-        _watch.Stop();
+        var right = Typed == Current!.Answer;
         Given = Typed;
-        Finish(right: Typed == Current!.Answer);
+        if (Stage == Stage.Asking)
+        {
+            _watch.Stop();
+            if (right)
+            {
+                Finish(right: true);
+                return;
+            }
+            Finish(right: false);
+            Missed = true;
+            Stage = Stage.Retrying;
+            Typed = "";
+        }
+        else if (right)
+        {
+            Right = true;
+            Stage = Stage.Done;
+        }
+        else
+        {
+            Typed = "";
+        }
+    }
+
+    /// <summary>Listen, numbers: stops retrying and shows the answer.</summary>
+    public void GiveUp()
+    {
+        if (Stage == Stage.Retrying) Stage = Stage.Done;
     }
 
     /// <summary>Listen, words: picks a meaning.</summary>

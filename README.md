@@ -31,9 +31,11 @@ Pick a language and a mode.
 - **Read 👁:** a number is shown; say it out loud, then reveal it to hear and see it, and grade
   yourself.
 
-- A wrong answer buzzes and plays the recording again, so you hear what it should have been. The
-  answer is shown with the number written out: *47 · syvogfyrre*, *23 · ventitré*.
-- `Space` plays the recording again.
+- A wrong number buzzes, counts as missed and plays the recording again with the answer still
+  hidden, so you can type another try (a right retry scores no points). **Show** (or `Enter` with
+  nothing typed) gives up and shows the answer with the number written out: *47 · syvogfyrre*,
+  *23 · ventitré*.
+- `Space`, or tapping the speaker, plays the recording again.
 - Numbers come in random order, and every one is shown once before any repeats.
 - Score, accuracy and streak are kept in the browser for each language and mode; ↺ resets them.
 
@@ -67,13 +69,12 @@ recordings. A new language needs:
 - `numbers.txt`: the digits 0–99, one per line. The voice reads each one in its own language, and
   the file is named after the line, so `47` becomes `47.mp3`.
 - `WordsToMp3.py`: turns each line of a text file into an mp3 with the given voice, skipping files
-  that already exist.
-- `WordsToMp3.bat`: runs it for French (`fr-FR-DeniseNeural`), Spanish (`es-ES-ElviraNeural`),
-  German (`de-DE-AmalaNeural`) and Swiss German (`de-CH-LeniNeural`) into
-  `tools/tts/audio/<code>/numbers` (not committed), from where the files are copied to
-  `CheckYourNumbers/wwwroot/audio`.
-- `words-de.txt`, `words-es.txt`, `words-fr.txt`: the same numbers written out, as the app shows
-  them, should a voice ever read a digit wrong.
+  that already exist unless `--overwrite` is given. `--rate` changes the speaking speed (`+50`,
+  `-15%`), and `--concurrency` limits the requests at a time.
+- `WordsToMp3.bat`: runs it into `tools/tts/audio/<code>/numbers` (not committed), from where the
+  files are copied to `CheckYourNumbers/wwwroot/audio`. Only the Swiss German line
+  (`de-CH-LeniNeural`, at `+50` rate) is active; the lines for French (`fr-FR-DeniseNeural`),
+  Spanish (`es-ES-ElviraNeural`) and German (`de-DE-AmalaNeural`) are kept as comments.
 
 The game engine can also play a word list (`Language.Words`), with the recordings in
 `audio/<code>/words/`; no language has one at the moment.

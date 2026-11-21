@@ -39,6 +39,17 @@ def sanitize_filename(word: str) -> str:
     return cleaned or "word"
 
 
+def normalize_rate(value: str) -> str:
+    """Accept +10%, +10, 10, -10 and normalize to edge-tts format (+10%/-10%)."""
+    match = re.fullmatch(r"([+-]?)(\d+)%?", value.strip())
+    if not match:
+        raise ValueError("--rate must be like +10%, -15%, 10, +10, or -15")
+    sign, amount = match.groups()
+    if sign == "":
+        sign = "+"
+    return f"{sign}{amount}%"
+
+
 async def synthesize_word(
     word: str,
     out_path: Path,
@@ -54,25 +65,44 @@ async def synthesize_word(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Convert words from a text file to MP3 audio using edge-tts"
+        description="Convert words from a text file to MP3 audio using edge-tts",
+        add_help=True,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
         "--input-file",
         type=str,
         default=INPUT_FILE,
-        help=f"Path to input text file (default: {INPUT_FILE})",
+        help="Path to input text file",
     )
     parser.add_argument(
         "--output-dir",
         type=str,
         default=str(OUTPUT_DIR),
-        help=f"Output directory for MP3 files (default: {OUTPUT_DIR})",
+        help="Output directory for MP3 files",
     )
     parser.add_argument(
         "--voice",
         type=str,
         default=VOICE,
-        help=f"TTS voice to use (default: {VOICE})",
+        help="TTS voice to use",
+    )
+    parser.add_argument(
+        "--rate",
+        type=str,
+        default=RATE,
+        help="TTS speaking rate (+10%%, -15%%, 10, +10, -15)",
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=CONCURRENCY,
+        help="Maximum concurrent requests",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Regenerate MP3 files even if they already exist",
     )
     return parser.parse_args()
 
@@ -82,8 +112,13 @@ async def main() -> None:
     input_path = Path(args.input_file)
     output_dir = Path(args.output_dir)
     voice = args.voice
+    rate = normalize_rate(args.rate)
+    concurrency = args.concurrency
+    overwrite = args.overwrite
     if not input_path.exists():
         raise FileNotFoundError(f"Could not find '{INPUT_FILE}'. Create it with one word per line.")
+    if concurrency < 1:
+        raise ValueError("--concurrency must be >= 1")
 
     # Read non-empty, non-comment lines with UTF-8 encoding so æ, ø, å load properly
     lines = [
@@ -97,7 +132,7 @@ async def main() -> None:
         return
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    semaphore = asyncio.Semaphore(CONCURRENCY)
+    semaphore = asyncio.Semaphore(concurrency)
 
     # Only generate words that don't already have an MP3 in the output folder
     jobs: list[tuple[str, Path]] = []
@@ -110,7 +145,7 @@ async def main() -> None:
         seen_words.add(word)
 
         base_name = sanitize_filename(word)
-        if (output_dir / f"{base_name}.mp3").exists():
+        if not overwrite and (output_dir / f"{base_name}.mp3").exists():
             skipped += 1
             continue
 
@@ -121,10 +156,11 @@ async def main() -> None:
 
     if not jobs:
         print(f"Nothing to do: all {skipped} words already exist in '{output_dir}/'.")
+        print("Tip: use --overwrite to regenerate files after changing --rate or --voice.")
         return
 
     tasks = [
-        synthesize_word(word=word, out_path=out_path, semaphore=semaphore, voice=voice)
+        synthesize_word(word=word, out_path=out_path, semaphore=semaphore, voice=voice, rate=rate)
         for word, out_path in jobs
     ]
     await asyncio.gather(*tasks)

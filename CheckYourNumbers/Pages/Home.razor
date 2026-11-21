@@ -77,7 +77,8 @@
                 {
                     <p>Listen to a number in <strong><em>@_game.Language.Name</em></strong> and type it on the keypad
                         or your own keyboard. Two digits are checked straight away; a single digit with
-                        <kbd>✓</kbd> or <kbd>Enter</kbd>.</p>
+                        <kbd>✓</kbd> or <kbd>Enter</kbd>. Get it wrong and it plays again, so you can have
+                        another go (no points for that) or show the answer.</p>
                 }
                 else if (_game.Mode == Mode.Listen)
                 {
@@ -91,7 +92,7 @@
                         and be honest: did you get it?</p>
                 }
                 <p class="muted">
-                    <kbd>Space</kbd> plays it again.
+                    <span class="on-keys"><kbd>Space</kbd> plays it again.</span><span class="on-touch">Tap the speaker to hear it again.</span>
                     @(_game.Mode == Mode.Listen
                         ? "A right answer scores 10 points, plus up to 10 more for speed. With the timer on, running out of time counts as missed."
                         : "Each one you got scores 10 points. With the timer on, the answer reveals itself when the time is up.")
@@ -128,13 +129,21 @@
                                   stroke-width="1.9" stroke-linecap="round" />
                         </svg>
                     </button>
-                    <span class="caption">@(numbers ? "Which number?" : "What does it mean?") <kbd>Space</kbd> again</span>
+                    @* Phones have no Space key, so touch screens are told to tap the speaker instead. *@
+                    <span class="caption">@(numbers ? "Which number?" : "What does it mean?")
+                        <span class="on-keys"><kbd>Space</kbd> again</span><span class="on-touch">Tap the speaker to hear it again</span></span>
                 </section>
 
                 @if (numbers)
                 {
                     var shown = _game.Stage == Stage.Done ? _game.Given ?? "" : _game.Typed;
-                    <section class="readout @(_game.Stage == Stage.Done ? (_game.Right ? "right" : "wrong") : "")"
+                    var readout = _game.Stage switch
+                    {
+                        Stage.Done => _game.Right ? "right" : "wrong",
+                        Stage.Retrying when _game.Typed.Length == 0 => "wrong",
+                        _ => "",
+                    };
+                    <section class="readout @readout"
                              @key="@($"{_round}-{_shake}")">
                         @for (var i = 0; i < QuizGame.MaxDigits; i++)
                         {
@@ -146,10 +155,21 @@
                 }
 
                 <section class="answer" aria-live="polite">
-                    @if (_game.Stage == Stage.Done)
+                    @if (_game.Stage == Stage.Retrying)
                     {
+                        @* The answer stays hidden so the retry is a real one. *@
+                        <div class="result missed">
+                            <span class="verdict">Not quite — you typed @_game.Given</span>
+                            <span class="note">Listen again and have another go, or show the answer</span>
+                        </div>
+                    }
+                    else if (_game.Stage == Stage.Done)
+                    {
+                        var verdict = _game.Right
+                            ? _game.Missed ? "Got it on the retry" : "Perfect!"
+                            : _game.TimedOut ? "Time's up — it was" : "Not quite — it was";
                         <div class="result @(_game.Right ? "perfect" : "missed")">
-                            <span class="verdict">@(_game.Right ? "Perfect!" : _game.TimedOut ? "Time's up — it was" : "Not quite — it was")</span>
+                            <span class="verdict">@verdict</span>
                             <span class="full">
                                 @if (numbers)
                                 {
@@ -160,7 +180,11 @@
                                     <em>@card.Written</em><span class="sep">·</span>@card.Answer
                                 }
                             </span>
-                            @if (_game.Right)
+                            @if (_game.Right && _game.Missed)
+                            {
+                                <span class="note">no points for a retry</span>
+                            }
+                            else if (_game.Right)
                             {
                                 <span class="earned">+@_game.LastPoints points · @_game.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture) s</span>
                             }
@@ -190,6 +214,10 @@
                         @if (_game.Stage == Stage.Done)
                         {
                             <button class="key action ok next" @onclick="NextRound" title="Next (Enter)">Next</button>
+                        }
+                        else if (_game.Stage == Stage.Retrying && _game.Typed.Length == 0)
+                        {
+                            <button class="key action ok next" @onclick="GiveUp" title="Show the answer (Enter)">Show</button>
                         }
                         else
                         {
@@ -349,6 +377,7 @@
         {
             if (key.Length == 1 && char.IsAsciiDigit(key[0])) await TypeDigit(key[0]);
             else if (key == "Backspace") Backspace();
+            else if (key == "Enter" && _game.Stage == Stage.Retrying && _game.Typed.Length == 0) GiveUp();
             else if (key == "Enter") await Submit();
         }
         else if (key.Length == 1 && key[0] - '1' is var i && i >= 0 && i < _game.Choices.Count)
@@ -520,10 +549,18 @@
         await Answered();
     }
 
+    /// <summary>Listen, numbers: stops retrying, shows the answer and plays it once more.</summary>
+    private void GiveUp()
+    {
+        if (_game.Stage != Stage.Retrying || _game.Current is not { } card) return;
+        _game.GiveUp();
+        _ = Say(card);
+    }
+
     /// <summary>A listen round was answered: a right one chimes, a wrong one buzzes and is heard again.</summary>
     private async Task Answered()
     {
-        if (_game.Stage != Stage.Done || _game.Current is not { } card) return;
+        if (_game.Stage is not (Stage.Done or Stage.Retrying) || _game.Current is not { } card) return;
         if (_game.Right)
         {
             await Play("success");

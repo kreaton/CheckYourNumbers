@@ -401,6 +401,13 @@ kbd {
 .caption { color: var(--muted); font-size: 0.85rem; }
 .caption kbd { margin-left: 6px; }
 
+/* Keyboard hints for desktops; touch screens (no Space key) get a "tap" hint instead. */
+.on-touch { display: none; }
+@media (hover: none) and (pointer: coarse) {
+    .on-keys { display: none; }
+    .on-touch { display: inline; }
+}
+
 /* ---- Typed digits ---- */
 
 .readout {
