@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<!--
+  The phone screen in the README banner: the app's own markup and stylesheet, as it looks after a
+  right answer. tools/banner.html shows it in a 420x860 frame, so the app's phone layout applies.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Check Your Numbers phone</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=block" rel="stylesheet" />
+<link rel="stylesheet" href="../CheckYourNumbers/wwwroot/css/app.css" />
+<style>
+    html, body { overflow: hidden; }
+    * { animation: none !important; transition: none !important; }
+</style>
+</head>
+<body>
+<main class="game"><header class="topbar"><h1>Check Your <span>Numbers</span></h1>
+        <div class="mode-top"></div>
+        <div class="toolbar"><label class="timer-btn"><span class="timer-icon" aria-hidden="true">⏱</span>
+                <select aria-label="Timer"><option>8 s</option></select></label>
+            <button class="icon-btn">🔊</button>
+            <button class="icon-btn">↺</button></div></header>
+
+    <div class="pickers"><nav class="langs" style="--count:8"><button class="lang-chip on"><img class="flag" src="../CheckYourNumbers/wwwroot/flags/dk.svg" alt="" /></button><button class="lang-chip"><img class="flag" src="../CheckYourNumbers/wwwroot/flags/gb.svg" alt="" /></button><button class="lang-chip"><img class="flag" src="../CheckYourNumbers/wwwroot/flags/de.svg" alt="" /></button><button class="lang-chip"><img class="flag" src="../CheckYourNumbers/wwwroot/flags/ch.svg" alt="" /></button><button class="lang-chip"><img class="flag" src="../CheckYourNumbers/wwwroot/flags/fr.svg" alt="" /></button><button class="lang-chip"><img class="flag" src="../CheckYourNumbers/wwwroot/flags/it.svg" alt="" /></button><button class="lang-chip"><img class="flag" src="../CheckYourNumbers/wwwroot/flags/es.svg" alt="" /></button><button class="lang-chip"><img class="flag" src="../CheckYourNumbers/wwwroot/flags/nl.svg" alt="" /></button></nav>
+        <div class="mode-row"><div class="segmented"><button class="on"><span aria-hidden="true">🎧</span> Listen</button>
+        <button><span aria-hidden="true">👁</span> Read</button></div></div></div>
+
+    <section class="stats"><div class="stat points"><span class="value">118</span><span class="label">Points</span></div>
+        <div class="stat good"><span class="value">7</span><span class="label">Correct</span></div>
+        <div class="stat bad"><span class="value">0</span><span class="label">Missed</span></div>
+        <div class="stat"><span class="value">100%</span><span class="label">Acc<span class="long">uracy</span></span></div>
+        <div class="stat streak hot"><span class="value">7</span><span class="label">Streak<span class="best"> · best 7</span></span></div></section>
+
+    <div class="play"><section class="stage listen"><button class="orb"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 9.2v5.6h3.8l4.9 4V5.2l-4.9 4H3.5z" fill="currentColor"></path>
+                <path d="M15.5 8.7a4.6 4.6 0 0 1 0 6.6M18.3 6a8.4 8.4 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"></path></svg></button>
+            <span class="caption">Which number? <kbd>Space</kbd> again</span></section>
+        <section class="readout right"><span class="slot filled" style="--i:0">8</span><span class="slot filled" style="--i:1">9</span></section>
+        <section class="answer"><div class="result perfect"><span class="verdict">Perfect!</span>
+                <span class="full"><em>89</em><span class="sep">·</span>niogfirs</span><span class="earned">+17 points · 1.8 s</span></div></section>
+        <section class="keypad inactive"><button class="key" disabled>1</button><button class="key" disabled>2</button><button class="key" disabled>3</button><button class="key" disabled>4</button><button class="key" disabled>5</button><button class="key" disabled>6</button><button class="key" disabled>7</button><button class="key" disabled>8</button><button class="key" disabled>9</button><button class="key action" disabled>⌫</button>
+            <button class="key" disabled>0</button><button class="key action ok next">Next</button></section></div>
+
+    <footer class="credits">Made with love 💛 (c) 2026 Per Hejndorf, Kreaton · Voices are computer-generated</footer></main>
+</body>
+</html>

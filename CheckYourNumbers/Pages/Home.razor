@@ -1,0 +1,611 @@
+@page "/"
+@using System.Globalization
+@using CheckYourNumbers.Game
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<PageTitle>Check Your Numbers</PageTitle>
+
+<main class="game">
+    <header class="topbar">
+        <h1>Check Your <span>Numbers</span></h1>
+        @* The mode switch sits here on wide screens and below the languages on narrow ones. *@
+        <div class="mode-top">@ModeSwitch</div>
+        <div class="toolbar">
+            <label class="timer-btn @(_game.TimerSeconds is null ? "" : "on")" title="@TimerTitle">
+                <span class="timer-icon" aria-hidden="true">⏱</span>
+                <select value="@(_game.TimerSeconds?.ToString() ?? "")" @onchange="e => ChangeTimer((string?)e.Value)"
+                        aria-label="Timer">
+                    <option value="">Off</option>
+                    @foreach (var seconds in TimerChoices)
+                    {
+                        <option value="@seconds">@seconds s</option>
+                    }
+                </select>
+            </label>
+            <button class="icon-btn" @onclick="ToggleSound" title="@(_soundOn ? "Mute sound effects" : "Unmute sound effects")"
+                    aria-label="@(_soundOn ? "Mute sound effects" : "Unmute sound effects")">
+                @(_soundOn ? "🔊" : "🔇")
+            </button>
+            <button class="icon-btn" @onclick="ResetScore" title="Reset the score for this language, list and mode"
+                    aria-label="Reset score">↺</button>
+        </div>
+    </header>
+
+    <div class="pickers">
+    <nav class="langs" aria-label="Language" style="--count:@Language.All.Count">
+        @foreach (var lang in Language.All)
+        {
+            <button class="lang-chip @(lang == _game.Language ? "on" : "")" aria-pressed="@(lang == _game.Language)"
+                    title="@lang.Native" aria-label="@lang.Native"
+                    @onclick="() => Choose(lang, _game.Deck, _game.Mode)">
+                <img class="flag" src="@lang.FlagFile" alt="" draggable="false" />
+            </button>
+        }
+    </nav>
+
+    @* Only shown for a language with a word list as well as the numbers. *@
+    @if (_game.Language.Decks.Count > 1)
+    {
+        <div class="segmented decks" role="group" aria-label="List">
+            @foreach (var deck in _game.Language.Decks)
+            {
+                <button class="@(deck == _game.Deck ? "on" : "")" aria-pressed="@(deck == _game.Deck)"
+                        @onclick="() => Choose(_game.Language, deck, _game.Mode)">@Language.DeckName(deck)</button>
+            }
+        </div>
+    }
+    <div class="mode-row">@ModeSwitch</div>
+    </div>
+
+    <section class="stats" aria-label="Score">
+        <div class="stat points"><span class="value">@_game.Points</span><span class="label">Points</span></div>
+        <div class="stat good"><span class="value">@_game.Correct</span><span class="label">Correct</span></div>
+        <div class="stat bad"><span class="value">@_game.Wrong</span><span class="label">Missed</span></div>
+        <div class="stat"><span class="value">@Accuracy</span><span class="label">Acc<span class="long">uracy</span></span></div>
+        <div class="stat streak @(_game.Streak >= 3 ? "hot" : "")">
+            <span class="value">@_game.Streak</span><span class="label">Streak<span class="best"> · best @_game.BestStreak</span></span>
+        </div>
+    </section>
+
+    <div class="play">
+        @if (!_started || _game.Current is null)
+        {
+            <section class="intro">
+                <span class="eyebrow">@_game.Language.Name · @Language.DeckName(_game.Deck) · @_game.Mode</span>
+                @if (_game.Mode == Mode.Listen && _game.Deck == DeckKind.Numbers)
+                {
+                    <p>Listen to a number in <strong><em>@_game.Language.Name</em></strong> and type it on the keypad
+                        or your own keyboard. Two digits are checked straight away; a single digit with
+                        <kbd>✓</kbd> or <kbd>Enter</kbd>.</p>
+                }
+                else if (_game.Mode == Mode.Listen)
+                {
+                    <p>Listen to a word in <strong><em>@_game.Language.Name</em></strong> and pick what it means
+                        (or press <kbd>1</kbd>–<kbd>4</kbd>).</p>
+                }
+                else
+                {
+                    <p>@(_game.Deck == DeckKind.Numbers ? "A number" : "An English word") appears. Say it out loud in
+                        <strong><em>@_game.Language.Name</em></strong>, then reveal it to hear and see the answer,
+                        and be honest: did you get it?</p>
+                }
+                <p class="muted">
+                    <kbd>Space</kbd> plays it again.
+                    @(_game.Mode == Mode.Listen
+                        ? "A right answer scores 10 points, plus up to 10 more for speed. With the timer on, running out of time counts as missed."
+                        : "Each one you got scores 10 points. With the timer on, the answer reveals itself when the time is up.")
+                </p>
+                @* Browsers only allow sound after a user gesture, so the first round waits for this one. *@
+                <button class="primary-btn" @onclick="Start">Start <kbd>Enter</kbd></button>
+            </section>
+        }
+        else
+        {
+            var card = _game.Current;
+            var listen = _game.Mode == Mode.Listen;
+            var numbers = _game.Deck == DeckKind.Numbers;
+
+            @if (_game.TimeLimit is { } limit && _game.Remaining is { } remaining)
+            {
+                var running = _game.Stage == Stage.Asking;
+                <div class="timer @(remaining <= 3 && running ? "low" : "") @(_game.TimedOut && listen ? "out" : "") @(running ? "" : "stopped")"
+                     role="timer" aria-label="Time left">
+                    <div class="timer-track">
+                        <div class="timer-fill" style="width:@((100 * remaining / limit).ToString("0.##", CultureInfo.InvariantCulture))%"></div>
+                    </div>
+                    <span class="timer-text">@remaining.ToString("0.0", CultureInfo.InvariantCulture) s</span>
+                </div>
+            }
+
+            @if (listen)
+            {
+                <section class="stage listen" @key="_round">
+                    <button class="orb @(_playing ? "playing" : "")" @onclick="Replay" aria-label="Play it again">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M3.5 9.2v5.6h3.8l4.9 4V5.2l-4.9 4H3.5z" fill="currentColor" />
+                            <path d="M15.5 8.7a4.6 4.6 0 0 1 0 6.6M18.3 6a8.4 8.4 0 0 1 0 12" fill="none" stroke="currentColor"
+                                  stroke-width="1.9" stroke-linecap="round" />
+                        </svg>
+                    </button>
+                    <span class="caption">@(numbers ? "Which number?" : "What does it mean?") <kbd>Space</kbd> again</span>
+                </section>
+
+                @if (numbers)
+                {
+                    var shown = _game.Stage == Stage.Done ? _game.Given ?? "" : _game.Typed;
+                    <section class="readout @(_game.Stage == Stage.Done ? (_game.Right ? "right" : "wrong") : "")"
+                             @key="@($"{_round}-{_shake}")">
+                        @for (var i = 0; i < QuizGame.MaxDigits; i++)
+                        {
+                            var index = i;
+                            <span class="slot @(index < shown.Length ? "filled" : "") @(_game.Stage == Stage.Asking && index == shown.Length ? "current" : "")"
+                                  style="--i:@index">@(index < shown.Length ? shown[index] : "")</span>
+                        }
+                    </section>
+                }
+
+                <section class="answer" aria-live="polite">
+                    @if (_game.Stage == Stage.Done)
+                    {
+                        <div class="result @(_game.Right ? "perfect" : "missed")">
+                            <span class="verdict">@(_game.Right ? "Perfect!" : _game.TimedOut ? "Time's up — it was" : "Not quite — it was")</span>
+                            <span class="full">
+                                @if (numbers)
+                                {
+                                    <em>@card.Answer</em><span class="sep">·</span>@card.Written
+                                }
+                                else
+                                {
+                                    <em>@card.Written</em><span class="sep">·</span>@card.Answer
+                                }
+                            </span>
+                            @if (_game.Right)
+                            {
+                                <span class="earned">+@_game.LastPoints points · @_game.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture) s</span>
+                            }
+                            else if (numbers && _game.Given is { } given)
+                            {
+                                <span class="note">you typed @given</span>
+                            }
+                        </div>
+                        @if (!numbers)
+                        {
+                            <button class="primary-btn" @onclick="NextRound">Next <kbd>Enter</kbd></button>
+                        }
+                    }
+                </section>
+
+                @if (numbers)
+                {
+                    <section class="keypad @(_game.CanType ? "" : "inactive")" aria-label="Keypad">
+                        @foreach (var key in "123456789")
+                        {
+                            var digit = key;
+                            <button class="key" @onclick="() => TypeDigit(digit)" disabled="@(!_game.CanType)">@digit</button>
+                        }
+                        <button class="key action" @onclick="Backspace" disabled="@(!_game.CanType || _game.Typed.Length == 0)"
+                                aria-label="Delete" title="Delete (Backspace)">⌫</button>
+                        <button class="key" @onclick="() => TypeDigit('0')" disabled="@(!_game.CanType)">0</button>
+                        @if (_game.Stage == Stage.Done)
+                        {
+                            <button class="key action ok next" @onclick="NextRound" title="Next (Enter)">Next</button>
+                        }
+                        else
+                        {
+                            <button class="key action ok" @onclick="Submit" disabled="@(_game.Typed.Length == 0)"
+                                    aria-label="Check" title="Check (Enter)">✓</button>
+                        }
+                    </section>
+                }
+                else
+                {
+                    <section class="choices" aria-label="Meanings">
+                        @for (var i = 0; i < _game.Choices.Count; i++)
+                        {
+                            var choice = _game.Choices[i];
+                            var done = _game.Stage == Stage.Done;
+                            var state = !done ? "" : choice == card.Answer ? "right" : choice == _game.Given ? "wrong" : "faded";
+                            <button class="choice @state" disabled="@done" @onclick="() => ChooseMeaning(choice)">
+                                <kbd>@(i + 1)</kbd><span>@choice</span>
+                            </button>
+                        }
+                    </section>
+                }
+            }
+            else
+            {
+                <section class="stage read" @key="_round">
+                    <span class="eyebrow">Say it in @_game.Language.Name</span>
+                    <h2 class="big-prompt @(numbers ? "numeral" : "word")">@card.Prompt</h2>
+                </section>
+
+                <section class="answer reveal-area" aria-live="polite">
+                    @if (_game.Stage == Stage.Revealed)
+                    {
+                        <div class="reveal">
+                            <span class="written">@card.Written</span>
+                            <button class="mini-orb @(_playing ? "playing" : "")" @onclick="Replay" aria-label="Play it again"
+                                    title="Play it again (Space)">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M3.5 9.2v5.6h3.8l4.9 4V5.2l-4.9 4H3.5z" fill="currentColor" />
+                                    <path d="M15.5 8.7a4.6 4.6 0 0 1 0 6.6M18.3 6a8.4 8.4 0 0 1 0 12" fill="none" stroke="currentColor"
+                                          stroke-width="1.9" stroke-linecap="round" />
+                                </svg>
+                            </button>
+                        </div>
+                        <p class="question">@(_game.TimedOut ? "Time's up. " : "")Did you get it?</p>
+                        <div class="grades">
+                            <button class="grade good" @onclick="() => Grade(true)"><span>✓ Got it</span><kbd>1</kbd></button>
+                            <button class="grade bad" @onclick="() => Grade(false)"><span>✗ Not yet</span><kbd>2</kbd></button>
+                        </div>
+                    }
+                    else
+                    {
+                        <button class="primary-btn" @onclick="Reveal">Reveal <kbd>Enter</kbd></button>
+                    }
+                </section>
+            }
+        }
+    </div>
+
+    <footer class="credits">Made with love 💛 (c) 2026 Per Hejndorf, Kreaton · Voices are computer-generated<span class="build"> – @BuildInfo.Display</span></footer>
+</main>
+
+@code {
+    private const string StateKey = "checkyournumbers.state";
+
+    private RenderFragment ModeSwitch => @<div class="segmented" role="group" aria-label="Mode">
+        <button class="@(_game.Mode == Mode.Listen ? "on" : "")" aria-pressed="@(_game.Mode == Mode.Listen)"
+                @onclick="() => Choose(_game.Language, _game.Deck, Mode.Listen)" title="Hear it, then answer">
+            <span aria-hidden="true">🎧</span> Listen
+        </button>
+        <button class="@(_game.Mode == Mode.Read ? "on" : "")" aria-pressed="@(_game.Mode == Mode.Read)"
+                @onclick="() => Choose(_game.Language, _game.Deck, Mode.Read)" title="See it, say it, then check">
+            <span aria-hidden="true">👁</span> Read
+        </button>
+    </div>;
+
+    private static readonly int[] TimerChoices = [3, 5, 8, 10, 15];
+
+    private readonly QuizGame _game = new();
+    private DotNetObjectReference<Home>? _self;
+    private CancellationTokenSource? _tickerCts;
+    private bool _started;
+    private bool _soundOn = true;
+    private bool _playing;
+    private int _sayToken;
+    private int _round;
+    private int _shake;
+    private Dictionary<string, SavedScore> _scores = new();
+
+    private sealed record SavedScore(int Correct, int Wrong, int BestStreak, int Points);
+
+    private sealed record SavedState(string Language, DeckKind Deck, Mode Mode, bool SoundOn,
+        Dictionary<string, SavedScore>? Scores, int? TimerSeconds);
+
+    private string ScoreKey => $"{_game.Language.Code}-{_game.Deck}-{_game.Mode}".ToLowerInvariant();
+
+    private string Accuracy => _game.Correct + _game.Wrong == 0
+        ? "–"
+        : $"{100.0 * _game.Correct / (_game.Correct + _game.Wrong):0}%";
+
+    private string TimerTitle => _game.Mode == Mode.Listen
+        ? "Timer: seconds to answer; a new setting starts with the next round"
+        : "Timer: seconds before the answer is revealed; a new setting starts with the next round";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        var json = await JS.InvokeAsync<string?>("gameStore.load", StateKey);
+        if (json is not null)
+        {
+            try
+            {
+                var saved = System.Text.Json.JsonSerializer.Deserialize<SavedState>(json);
+                if (saved is not null)
+                {
+                    _soundOn = saved.SoundOn;
+                    _scores = saved.Scores ?? new();
+                    _game.TimerSeconds = saved.TimerSeconds is { } s && TimerChoices.Contains(s) ? s : null;
+                    _game.Select(Language.Get(saved.Language), saved.Deck, saved.Mode);
+                }
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                // A broken saved state just starts from scratch.
+            }
+        }
+        LoadScore();
+        StateHasChanged();
+
+        _self = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("gameKeys.attach", _self);
+    }
+
+    [JSInvokable]
+    public async Task OnKey(string key)
+    {
+        var space = key == " ";
+        if (!_started || _game.Current is null)
+        {
+            if (key == "Enter" || space) await Start();
+        }
+        else if (space)
+        {
+            await Replay();
+        }
+        else if (_game.Mode == Mode.Read)
+        {
+            if (_game.Stage == Stage.Asking && key == "Enter") await Reveal();
+            else if (_game.Stage == Stage.Revealed && key is "1" or "2") await Grade(key == "1");
+        }
+        else if (_game.Stage == Stage.Done)
+        {
+            if (key == "Enter") NextRound();
+        }
+        else if (_game.Deck == DeckKind.Numbers)
+        {
+            if (key.Length == 1 && char.IsAsciiDigit(key[0])) await TypeDigit(key[0]);
+            else if (key == "Backspace") Backspace();
+            else if (key == "Enter") await Submit();
+        }
+        else if (key.Length == 1 && key[0] - '1' is var i && i >= 0 && i < _game.Choices.Count)
+        {
+            await ChooseMeaning(_game.Choices[i]);
+        }
+        StateHasChanged();
+    }
+
+    private async Task Choose(Language language, DeckKind deck, Mode mode)
+    {
+        if (language == _game.Language && deck == _game.Deck && mode == _game.Mode) return;
+        StoreScore();
+        _game.Select(language, deck, mode);
+        LoadScore();
+        if (_started) NextRound();
+        await SaveState();
+    }
+
+    private async Task ChangeTimer(string? value)
+    {
+        _game.TimerSeconds = int.TryParse(value, out var seconds) && TimerChoices.Contains(seconds) ? seconds : null;
+        await SaveState();
+    }
+
+    private Task Start()
+    {
+        _started = true;
+        NextRound();
+        return Task.CompletedTask;
+    }
+
+    private void NextRound()
+    {
+        _started = true;
+        _game.NewRound();
+        _round++;
+        StartRound();
+    }
+
+    /// <summary>Listen rounds start by playing the recording; the next one is fetched ahead.</summary>
+    private void StartRound()
+    {
+        if (_game.Current is null) return;
+        if (_game.Mode == Mode.Listen) _ = Say(_game.Current);
+        else StopVoice();
+        if (_game.Upcoming is { } next) _ = JS.InvokeVoidAsync("voice.preload", next.Audio).AsTask();
+        _ = RunTicker();
+    }
+
+    private async Task Say(Card card, int delayMs = 0)
+    {
+        var token = ++_sayToken;
+        if (delayMs > 0)
+        {
+            await Task.Delay(delayMs);
+            if (token != _sayToken) return;
+        }
+        _playing = true;
+        StateHasChanged();
+        try
+        {
+            await JS.InvokeAsync<bool>("voice.play", card.Audio);
+        }
+        catch (JSException)
+        {
+            // No audio: the round still works, it just can't be heard.
+        }
+        if (token != _sayToken) return;
+        _playing = false;
+        StateHasChanged();
+    }
+
+    private void StopVoice()
+    {
+        _sayToken++;
+        _playing = false;
+        _ = JS.InvokeVoidAsync("voice.stop").AsTask();
+    }
+
+    private Task Replay()
+    {
+        if (_game.Current is null || (_game.Mode == Mode.Read && _game.Stage == Stage.Asking)) return Task.CompletedTask;
+        _ = Say(_game.Current);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Redraws the countdown, and handles the time running out.</summary>
+    private async Task RunTicker()
+    {
+        _tickerCts?.Cancel();
+        if (_game.TimeLimit is null) return;
+
+        var cts = _tickerCts = new CancellationTokenSource();
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(100));
+        var lastWhole = (int)Math.Ceiling(_game.Remaining ?? 0);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cts.Token))
+            {
+                if (_game.Stage != Stage.Asking) break;
+                if (_game.CheckTimeout())
+                {
+                    await OnTimedOut();
+                    StateHasChanged();
+                    break;
+                }
+                var whole = (int)Math.Ceiling(_game.Remaining ?? 0);
+                if (whole < lastWhole && whole is >= 1 and <= 3) await Play("tick");
+                lastWhole = whole;
+                StateHasChanged();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task OnTimedOut()
+    {
+        if (_game.Current is not { } card) return;
+        if (_game.Mode == Mode.Read)
+        {
+            _ = Say(card);
+        }
+        else
+        {
+            await Play("timeout");
+            _ = Say(card, 900);
+            await SaveState();
+        }
+    }
+
+    private async Task TypeDigit(char digit)
+    {
+        if (!_game.CanType) return;
+        if (_game.TimedOut || _game.CheckTimeout())
+        {
+            await OnTimedOut();
+            return;
+        }
+        if (_game.TypeDigit(digit)) await Answered();
+        else await Play("key");
+    }
+
+    private void Backspace() => _game.Backspace();
+
+    private async Task Submit()
+    {
+        if (!_game.CanType || _game.Typed.Length == 0) return;
+        if (_game.CheckTimeout())
+        {
+            await OnTimedOut();
+            return;
+        }
+        _game.Submit();
+        await Answered();
+    }
+
+    private async Task ChooseMeaning(string meaning)
+    {
+        if (_game.Stage != Stage.Asking) return;
+        if (_game.CheckTimeout())
+        {
+            await OnTimedOut();
+            return;
+        }
+        _game.Choose(meaning);
+        await Answered();
+    }
+
+    /// <summary>A listen round was answered: a right one chimes, a wrong one buzzes and is heard again.</summary>
+    private async Task Answered()
+    {
+        if (_game.Stage != Stage.Done || _game.Current is not { } card) return;
+        if (_game.Right)
+        {
+            await Play("success");
+        }
+        else
+        {
+            _shake++;
+            await Play("error");
+            _ = Say(card, 450);
+        }
+        await SaveState();
+    }
+
+    private Task Reveal()
+    {
+        _game.Reveal();
+        if (_game.Stage == Stage.Revealed && _game.Current is { } card) _ = Say(card);
+        return Task.CompletedTask;
+    }
+
+    private async Task Grade(bool knewIt)
+    {
+        if (_game.Stage != Stage.Revealed) return;
+        await Play(knewIt ? "success" : "soft");
+        _game.Grade(knewIt);
+        _round++;
+        StartRound();
+        await SaveState();
+    }
+
+    private async Task ResetScore()
+    {
+        _game.ResetScore();
+        await SaveState();
+    }
+
+    private async Task ToggleSound()
+    {
+        _soundOn = !_soundOn;
+        await SaveState();
+    }
+
+    private void StoreScore() =>
+        _scores[ScoreKey] = new SavedScore(_game.Correct, _game.Wrong, _game.BestStreak, _game.Points);
+
+    private void LoadScore()
+    {
+        var score = _scores.GetValueOrDefault(ScoreKey) ?? new SavedScore(0, 0, 0, 0);
+        _game.SetScore(score.Correct, score.Wrong, score.BestStreak, score.Points);
+    }
+
+    private async Task SaveState()
+    {
+        StoreScore();
+        var json = System.Text.Json.JsonSerializer.Serialize(new SavedState(
+            _game.Language.Code, _game.Deck, _game.Mode, _soundOn, _scores, _game.TimerSeconds));
+        await JS.InvokeVoidAsync("gameStore.save", StateKey, json);
+    }
+
+    private async Task Play(string sound)
+    {
+        if (!_soundOn) return;
+        try
+        {
+            await JS.InvokeVoidAsync($"gameSounds.{sound}");
+        }
+        catch (JSException)
+        {
+            // No Web Audio: the game still works without effects.
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _tickerCts?.Cancel();
+        try
+        {
+            await JS.InvokeVoidAsync("gameKeys.detach");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        _self?.Dispose();
+    }
+}

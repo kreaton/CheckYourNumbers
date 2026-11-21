@@ -1,0 +1,57 @@
+name: Build and Deploy Blazor WASM to GitHub Pages
+
+on:
+  push:
+    branches: [ "main" ] # Change to "master" if your default branch is master
+  workflow_dispatch: # Also allows a manual run from the Actions tab
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x # The project targets net10.0
+
+      - name: Publish .NET App
+        # The run number becomes the patch version (1.0.<run>), see Directory.Build.props
+        run: dotnet publish CheckYourNumbers/CheckYourNumbers.csproj -c Release -o release -p:BuildNumber=${{ github.run_number }}
+
+      - name: Upload publish artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: publish-output
+          path: release
+
+  # Publishes to https://kreaton.github.io/CheckYourNumbers/ (Settings > Pages > Source: GitHub Actions).
+  deploy-pages:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download publish artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: publish-output
+          path: release
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: release/wwwroot
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
